@@ -1,17 +1,20 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+// Import the Toast hook
+import { useToast } from "@/hooks/use-toast"
 import {
   Area,
   AreaChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis
+  YAxis,
+  CartesianGrid
 } from "recharts"
 import {
   RefreshCw,
@@ -26,7 +29,9 @@ import {
   DollarSign,
   Volume2,
   LineChart,
-  Gauge
+  Gauge,
+  ExternalLink,
+  FileText
 } from "lucide-react"
 
 // --- ANALYTICS UTILITIES ---
@@ -63,6 +68,7 @@ const calculateForecast = (prices: number[]) => {
 }
 
 export default function KijinDashboard() {
+  const { toast } = useToast()
   const [selectedCoin, setSelectedCoin] = useState("bitcoin")
   const [timeframe, setTimeframe] = useState("7d")
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -74,7 +80,7 @@ export default function KijinDashboard() {
   const [priceChange24h, setPriceChange24h] = useState(0)
   const [volume24h, setVolume24h] = useState(0)
   const [history, setHistory] = useState<number[]>([])
-  const [chartData, setChartData] = useState<any[]>([]) // Formatted for Recharts
+  const [chartData, setChartData] = useState<any[]>([]) 
   const [rsi, setRsi] = useState(50)
   
   // Derived Analytics State
@@ -86,7 +92,6 @@ export default function KijinDashboard() {
 
   // --- FETCH DATA ---
   useEffect(() => {
-    // AbortController prevents "race conditions" if you switch coins fast
     const controller = new AbortController()
     const signal = controller.signal
 
@@ -94,7 +99,6 @@ export default function KijinDashboard() {
       setLoading(true)
       setError(null)
       try {
-        // 1. Fetch Price & 24h Stats
         const priceRes = await fetch(
           `https://api.coingecko.com/api/v3/simple/price?ids=${selectedCoin}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true`,
           { signal }
@@ -108,8 +112,6 @@ export default function KijinDashboard() {
         setPriceChange24h(coinData.usd_24h_change)
         setVolume24h(coinData.usd_24h_vol)
 
-        // 2. Fetch History based on Timeframe
-        // 1d = 1 day, 7d = 7 days, 1m = 30 days
         const daysParam = timeframe === "1d" ? "1" : timeframe === "7d" ? "7" : "30"
         
         const historyRes = await fetch(
@@ -123,11 +125,12 @@ export default function KijinDashboard() {
         const prices = historyJson.prices.map((p: any) => p[1])
         setHistory(prices)
 
-        // Format for Recharts
+        // Format for Recharts with X/Y Axis friendly data
         const formattedChartData = historyJson.prices.map((item: any) => ({
+          // Format date based on timeframe (Hours for 1D, Dates for others)
           date: new Date(item[0]).toLocaleDateString(undefined, {
-            hour: timeframe === "1d" ? "2-digit" : undefined, 
-            minute: timeframe === "1d" ? "2-digit" : undefined
+             month: 'short', day: 'numeric',
+             hour: timeframe === '1d' ? '2-digit' : undefined
           }),
           price: item[1]
         }))
@@ -144,12 +147,10 @@ export default function KijinDashboard() {
         const isBullish = nextDayPrediction > prices[prices.length - 1]
         setTrendDirection(isBullish ? "UP" : "DOWN")
         
-        // Volatility calc for confidence
         const volatility = Math.abs(Math.max(...recentPrices) - Math.min(...recentPrices)) / Math.max(...recentPrices)
         const confidence = Math.max(10, Math.min(98, (1 - volatility) * 100))
         setConfidenceScore(Math.round(confidence))
 
-        // Logic Engine
         const ma7 = recentPrices.reduce((a: number, b: number) => a + b, 0) / 7
         const priceVsMA = prices[prices.length - 1] > ma7
         
@@ -184,7 +185,6 @@ export default function KijinDashboard() {
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           console.error("Fetch error:", error)
-          // Simple error handling for rate limits
           if (!currentPrice) setError("Rate Limited. Please wait 1m.")
         }
       } finally {
@@ -195,17 +195,29 @@ export default function KijinDashboard() {
 
     fetchData()
 
-    // Cleanup function: Cancels the fetch if you switch coins before it finishes
     return () => controller.abort()
   }, [selectedCoin, timeframe])
 
-  // Manual Refresh Handler
+  // --- BUTTON HANDLERS ---
+  
   const handleManualRefresh = () => {
     setIsRefreshing(true)
-    // Triggering the effect by momentarily changing state or just recalling logic
-    // A simple trick is to toggle timeframe briefly or just re-run logic, 
-    // but React Query is better for this. For now, we rely on the effect.
-    setSelectedCoin((prev) => prev) // Force re-render/re-fetch
+    setSelectedCoin((prev) => prev) 
+  }
+
+  const handleExecuteTrade = () => {
+    // Demo: Open Binance spot trading pair
+    const symbol = selectedCoin === "ripple" ? "XRP" : selectedCoin.toUpperCase()
+    window.open(`https://www.binance.com/en/trade/${symbol}_USDT`, '_blank')
+  }
+
+  const handleViewReport = () => {
+    // Demo: Trigger a toast notification simulating a report generation
+    toast({
+      title: "Analysis Report Generated",
+      description: `Comprehensive PDF report for ${selectedCoin.toUpperCase()} has been downloaded.`,
+      duration: 3000,
+    })
   }
 
   const coins = [
@@ -305,7 +317,7 @@ export default function KijinDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* INTERACTIVE RECHARTS CHART */}
+              {/* INTERACTIVE RECHARTS CHART - NOW WITH AXES! */}
               <div className="relative h-[300px] w-full rounded-lg border border-slate-700 bg-slate-900/50 p-2 overflow-hidden">
                 {loading ? (
                    <div className="flex h-full items-center justify-center text-slate-500">Loading Data...</div>
@@ -313,13 +325,29 @@ export default function KijinDashboard() {
                    <div className="flex h-full items-center justify-center text-red-400">{error}</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
+                    <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                        tickLine={false} 
+                        axisLine={false} 
+                        minTickGap={30}
+                      />
+                      <YAxis 
+                        domain={['auto', 'auto']} // Auto scales the axis
+                        tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                        tickLine={false} 
+                        axisLine={false}
+                        tickFormatter={(value) => `$${value}`}
+                        width={60}
+                      />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
                         itemStyle={{ color: '#10b981' }}
@@ -337,17 +365,6 @@ export default function KijinDashboard() {
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
-
-                {/* Overlay Text for Price */}
-                <div className="absolute top-4 left-4 pointer-events-none">
-                   <p className="text-3xl font-bold text-slate-100 tracking-tight">
-                     {loading ? "..." : formatUSD(currentPrice)}
-                   </p>
-                   <p className={`flex items-center text-sm font-medium ${priceChange24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {priceChange24h >= 0 ? <TrendingUp className="mr-1 h-3 w-3"/> : <TrendingDown className="mr-1 h-3 w-3"/>}
-                      {loading ? "..." : `${priceChange24h.toFixed(2)}% (24h)`}
-                   </p>
-                </div>
               </div>
 
               {/* Stats Grid */}
@@ -547,14 +564,19 @@ export default function KijinDashboard() {
               </div>
 
               <div className="flex flex-col items-center justify-center gap-4 pt-4 sm:flex-row">
-                <Button className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200 sm:w-auto">
-                  <TrendingUp className="mr-2 h-4 w-4" />
+                <Button 
+                  onClick={handleExecuteTrade}
+                  className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200 sm:w-auto"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
                   Execute on Exchange
                 </Button>
                 <Button
+                  onClick={handleViewReport}
                   variant="outline"
                   className="w-full border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-slate-100 sm:w-auto bg-transparent"
                 >
+                  <FileText className="mr-2 h-4 w-4" />
                   View Full Report
                 </Button>
               </div>
