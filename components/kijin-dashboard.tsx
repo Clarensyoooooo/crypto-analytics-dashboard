@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// Import the Toast hook
-import { useToast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
 import {
   Area,
   AreaChart,
@@ -29,9 +27,7 @@ import {
   DollarSign,
   Volume2,
   LineChart,
-  Gauge,
-  ExternalLink,
-  FileText
+  Gauge
 } from "lucide-react"
 
 // --- ANALYTICS UTILITIES ---
@@ -67,8 +63,7 @@ const calculateForecast = (prices: number[]) => {
   return slope * n + intercept
 }
 
-export default function KijinDashboard() {
-  const { toast } = useToast()
+export default function CryptoDashboard() {
   const [selectedCoin, setSelectedCoin] = useState("bitcoin")
   const [timeframe, setTimeframe] = useState("7d")
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -125,9 +120,7 @@ export default function KijinDashboard() {
         const prices = historyJson.prices.map((p: any) => p[1])
         setHistory(prices)
 
-        // Format for Recharts with X/Y Axis friendly data
         const formattedChartData = historyJson.prices.map((item: any) => ({
-          // Format date based on timeframe (Hours for 1D, Dates for others)
           date: new Date(item[0]).toLocaleDateString(undefined, {
              month: 'short', day: 'numeric',
              hour: timeframe === '1d' ? '2-digit' : undefined
@@ -199,25 +192,9 @@ export default function KijinDashboard() {
   }, [selectedCoin, timeframe])
 
   // --- BUTTON HANDLERS ---
-  
   const handleManualRefresh = () => {
     setIsRefreshing(true)
     setSelectedCoin((prev) => prev) 
-  }
-
-  const handleExecuteTrade = () => {
-    // Demo: Open Binance spot trading pair
-    const symbol = selectedCoin === "ripple" ? "XRP" : selectedCoin.toUpperCase()
-    window.open(`https://www.binance.com/en/trade/${symbol}_USDT`, '_blank')
-  }
-
-  const handleViewReport = () => {
-    // Demo: Trigger a toast notification simulating a report generation
-    toast({
-      title: "Analysis Report Generated",
-      description: `Comprehensive PDF report for ${selectedCoin.toUpperCase()} has been downloaded.`,
-      duration: 3000,
-    })
   }
 
   const coins = [
@@ -249,8 +226,9 @@ export default function KijinDashboard() {
               <Activity className="h-6 w-6 text-emerald-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-100">Kijin Analytics</h1>
-              <p className="text-xs text-slate-400">Advanced Crypto Intelligence</p>
+              {/* UPDATED TITLE */}
+              <h1 className="text-xl font-bold tracking-tight text-slate-100">Crypto Analytics</h1>
+              <p className="text-xs text-slate-400">Real-time Market Intelligence</p>
             </div>
           </div>
 
@@ -317,7 +295,6 @@ export default function KijinDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* INTERACTIVE RECHARTS CHART - NOW WITH AXES! */}
               <div className="relative h-[300px] w-full rounded-lg border border-slate-700 bg-slate-900/50 p-2 overflow-hidden">
                 {loading ? (
                    <div className="flex h-full items-center justify-center text-slate-500">Loading Data...</div>
@@ -341,7 +318,7 @@ export default function KijinDashboard() {
                         minTickGap={30}
                       />
                       <YAxis 
-                        domain={['auto', 'auto']} // Auto scales the axis
+                        domain={['auto', 'auto']}
                         tick={{ fill: '#94a3b8', fontSize: 12 }} 
                         tickLine={false} 
                         axisLine={false}
@@ -367,7 +344,6 @@ export default function KijinDashboard() {
                 )}
               </div>
 
-              {/* Stats Grid */}
               <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="border-slate-700 bg-slate-900/50">
                     <CardContent className="p-4">
@@ -542,7 +518,7 @@ export default function KijinDashboard() {
                 </div>
               </div>
 
-              <div className="mx-auto max-w-xl">
+              <div className="mx-auto max-w-xl pb-6">
                 <h4 className="mb-4 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">
                   Logic Reasons
                 </h4>
@@ -562,24 +538,9 @@ export default function KijinDashboard() {
                   )}
                 </div>
               </div>
+              
+              {/* BUTTONS REMOVED AS REQUESTED */}
 
-              <div className="flex flex-col items-center justify-center gap-4 pt-4 sm:flex-row">
-                <Button 
-                  onClick={handleExecuteTrade}
-                  className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200 sm:w-auto"
-                >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Execute on Exchange
-                </Button>
-                <Button
-                  onClick={handleViewReport}
-                  variant="outline"
-                  className="w-full border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-slate-100 sm:w-auto bg-transparent"
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  View Full Report
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </section>
@@ -588,7 +549,7 @@ export default function KijinDashboard() {
       <footer className="border-t border-slate-800 py-6">
         <div className="mx-auto max-w-7xl px-4 text-center">
           <p className="text-sm text-slate-500">
-            © 2025 Kijin Analytics. Data provided by CoinGecko API (Demo).
+            © 2025 Crypto Analytics. Data provided by CoinGecko API (Demo).
           </p>
         </div>
       </footer>
