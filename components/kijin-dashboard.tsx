@@ -6,6 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts"
+import {
   RefreshCw,
   TrendingUp,
   TrendingDown,
@@ -18,38 +26,30 @@ import {
   DollarSign,
   Volume2,
   LineChart,
-  Gauge,
-  AlertTriangle
+  Gauge
 } from "lucide-react"
 
 // --- ANALYTICS UTILITIES ---
 
-// 1. Calculate RSI (Relative Strength Index)
 const calculateRSI = (prices: number[], period = 14) => {
   if (prices.length < period + 1) return 50
-  
   let gains = 0
   let losses = 0
-
   for (let i = 1; i <= period; i++) {
     const change = prices[prices.length - i] - prices[prices.length - i - 1]
     if (change > 0) gains += change
     else losses += Math.abs(change)
   }
-
   const avgGain = gains / period
   const avgLoss = losses / period
-  
   if (avgLoss === 0) return 100
   const rs = avgGain / avgLoss
   return 100 - (100 / (1 + rs))
 }
 
-// 2. Simple Linear Regression for "AI Forecast"
 const calculateForecast = (prices: number[]) => {
   const n = prices.length
   if (n < 2) return prices[0] || 0
-
   let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0
   for (let i = 0; i < n; i++) {
     sumX += i
@@ -57,14 +57,10 @@ const calculateForecast = (prices: number[]) => {
     sumXY += i * prices[i]
     sumXX += i * i
   }
-
   const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX)
   const intercept = (sumY - slope * sumX) / n
-  
-  // Predict next step (n)
   return slope * n + intercept
 }
-
 
 export default function KijinDashboard() {
   const [selectedCoin, setSelectedCoin] = useState("bitcoin")
@@ -73,10 +69,12 @@ export default function KijinDashboard() {
   
   // Data State
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [currentPrice, setCurrentPrice] = useState(0)
   const [priceChange24h, setPriceChange24h] = useState(0)
   const [volume24h, setVolume24h] = useState(0)
   const [history, setHistory] = useState<number[]>([])
+  const [chartData, setChartData] = useState<any[]>([]) // Formatted for Recharts
   const [rsi, setRsi] = useState(50)
   
   // Derived Analytics State
@@ -87,97 +85,128 @@ export default function KijinDashboard() {
   const [logicReasons, setLogicReasons] = useState<{text: string, checked: boolean}[]>([])
 
   // --- FETCH DATA ---
-  const fetchData = async () => {
-    setLoading(true)
-    setIsRefreshing(true)
-    try {
-      // 1. Fetch Price & 24h Stats
-      const priceRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${selectedCoin}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true`
-      )
-      const priceData = await priceRes.json()
-      const coinData = priceData[selectedCoin]
-      
-      if (!coinData) throw new Error("No data found")
-
-      setCurrentPrice(coinData.usd)
-      setPriceChange24h(coinData.usd_24h_change)
-      setVolume24h(coinData.usd_24h_vol)
-
-      // 2. Fetch History for Analytics (30 days for robust RSI)
-      const historyRes = await fetch(
-        `https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart?vs_currency=usd&days=30&interval=daily`
-      )
-      const historyData = await historyRes.json()
-      const prices = historyData.prices.map((p: any) => p[1]) // Extract just price values
-      setHistory(prices)
-
-      // --- RUN ANALYTICS ---
-      
-      // A. Descriptive
-      const calculatedRSI = calculateRSI(prices)
-      setRsi(calculatedRSI)
-
-      // B. Predictive
-      const recentPrices = prices.slice(-7) // Last 7 days for trend
-      const nextDayPrediction = calculateForecast(recentPrices)
-      setForecastPrice(nextDayPrediction)
-      
-      const isBullish = nextDayPrediction > prices[prices.length - 1]
-      setTrendDirection(isBullish ? "UP" : "DOWN")
-      
-      // Calculate Confidence (based on volatility - lower volatility = higher confidence)
-      const volatility = Math.abs(Math.max(...recentPrices) - Math.min(...recentPrices)) / Math.max(...recentPrices)
-      const confidence = Math.max(10, Math.min(98, (1 - volatility) * 100))
-      setConfidenceScore(Math.round(confidence))
-
-      // C. Prescriptive
-      const ma7 = recentPrices.reduce((a: number, b: number) => a + b, 0) / 7
-      const priceVsMA = prices[prices.length - 1] > ma7
-      
-      const reasons = []
-      let rec = "HOLD"
-      
-      if (calculatedRSI < 30) {
-        reasons.push({ text: "RSI is Oversold (Buy Signal)", checked: true })
-        rec = "BUY"
-      } else if (calculatedRSI > 70) {
-        reasons.push({ text: "RSI is Overbought (Sell Signal)", checked: true })
-        rec = "SELL"
-      } else {
-        reasons.push({ text: "RSI is Neutral", checked: true })
-      }
-
-      if (priceVsMA) {
-        reasons.push({ text: "Price is above 7-day Moving Average", checked: true })
-        if (rec === "BUY") rec = "STRONG BUY"
-        else if (rec === "HOLD") rec = "ACCUMULATE"
-      } else {
-        reasons.push({ text: "Price is below 7-day Moving Average", checked: true })
-        if (rec === "SELL") rec = "STRONG SELL"
-      }
-
-      if (isBullish) {
-         reasons.push({ text: "AI Model predicts upward trend", checked: true })
-      } else {
-         reasons.push({ text: "AI Model predicts downward trend", checked: true })
-      }
-
-      setRecommendation(rec)
-      setLogicReasons(reasons)
-
-    } catch (error) {
-      console.error("Failed to fetch data:", error)
-    } finally {
-      setLoading(false)
-      setTimeout(() => setIsRefreshing(false), 500)
-    }
-  }
-
   useEffect(() => {
-    fetchData()
-  }, [selectedCoin])
+    // AbortController prevents "race conditions" if you switch coins fast
+    const controller = new AbortController()
+    const signal = controller.signal
 
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        // 1. Fetch Price & 24h Stats
+        const priceRes = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${selectedCoin}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true`,
+          { signal }
+        )
+        const priceJson = await priceRes.json()
+        const coinData = priceJson[selectedCoin]
+        
+        if (!coinData) throw new Error("Rate limit or no data")
+
+        setCurrentPrice(coinData.usd)
+        setPriceChange24h(coinData.usd_24h_change)
+        setVolume24h(coinData.usd_24h_vol)
+
+        // 2. Fetch History based on Timeframe
+        // 1d = 1 day, 7d = 7 days, 1m = 30 days
+        const daysParam = timeframe === "1d" ? "1" : timeframe === "7d" ? "7" : "30"
+        
+        const historyRes = await fetch(
+          `https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart?vs_currency=usd&days=${daysParam}`,
+          { signal }
+        )
+        const historyJson = await historyRes.json()
+        
+        if (!historyJson.prices) throw new Error("Invalid history data")
+
+        const prices = historyJson.prices.map((p: any) => p[1])
+        setHistory(prices)
+
+        // Format for Recharts
+        const formattedChartData = historyJson.prices.map((item: any) => ({
+          date: new Date(item[0]).toLocaleDateString(undefined, {
+            hour: timeframe === "1d" ? "2-digit" : undefined, 
+            minute: timeframe === "1d" ? "2-digit" : undefined
+          }),
+          price: item[1]
+        }))
+        setChartData(formattedChartData)
+
+        // --- RUN ANALYTICS ---
+        const calculatedRSI = calculateRSI(prices)
+        setRsi(calculatedRSI)
+
+        const recentPrices = prices.slice(-7)
+        const nextDayPrediction = calculateForecast(recentPrices)
+        setForecastPrice(nextDayPrediction)
+        
+        const isBullish = nextDayPrediction > prices[prices.length - 1]
+        setTrendDirection(isBullish ? "UP" : "DOWN")
+        
+        // Volatility calc for confidence
+        const volatility = Math.abs(Math.max(...recentPrices) - Math.min(...recentPrices)) / Math.max(...recentPrices)
+        const confidence = Math.max(10, Math.min(98, (1 - volatility) * 100))
+        setConfidenceScore(Math.round(confidence))
+
+        // Logic Engine
+        const ma7 = recentPrices.reduce((a: number, b: number) => a + b, 0) / 7
+        const priceVsMA = prices[prices.length - 1] > ma7
+        
+        const reasons = []
+        let rec = "HOLD"
+        
+        if (calculatedRSI < 30) {
+          reasons.push({ text: "RSI is Oversold (Buy Signal)", checked: true })
+          rec = "BUY"
+        } else if (calculatedRSI > 70) {
+          reasons.push({ text: "RSI is Overbought (Sell Signal)", checked: true })
+          rec = "SELL"
+        } else {
+          reasons.push({ text: "RSI is Neutral", checked: true })
+        }
+
+        if (priceVsMA) {
+          reasons.push({ text: "Price > 7-day Avg", checked: true })
+          if (rec === "BUY") rec = "STRONG BUY"
+          else if (rec === "HOLD") rec = "ACCUMULATE"
+        } else {
+          reasons.push({ text: "Price < 7-day Avg", checked: true })
+          if (rec === "SELL") rec = "STRONG SELL"
+        }
+
+        if (isBullish) reasons.push({ text: "AI Model predicts Uptrend", checked: true })
+        else reasons.push({ text: "AI Model predicts Downtrend", checked: true })
+
+        setRecommendation(rec)
+        setLogicReasons(reasons)
+
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          console.error("Fetch error:", error)
+          // Simple error handling for rate limits
+          if (!currentPrice) setError("Rate Limited. Please wait 1m.")
+        }
+      } finally {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
+    }
+
+    fetchData()
+
+    // Cleanup function: Cancels the fetch if you switch coins before it finishes
+    return () => controller.abort()
+  }, [selectedCoin, timeframe])
+
+  // Manual Refresh Handler
+  const handleManualRefresh = () => {
+    setIsRefreshing(true)
+    // Triggering the effect by momentarily changing state or just recalling logic
+    // A simple trick is to toggle timeframe briefly or just re-run logic, 
+    // but React Query is better for this. For now, we rely on the effect.
+    setSelectedCoin((prev) => prev) // Force re-render/re-fetch
+  }
 
   const coins = [
     { value: "bitcoin", label: "Bitcoin (BTC)" },
@@ -193,7 +222,6 @@ export default function KijinDashboard() {
     { value: "1m", label: "1M" },
   ]
 
-  // Format Helpers
   const formatUSD = (val: number) => 
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
   
@@ -202,7 +230,6 @@ export default function KijinDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
-      {/* Header */}
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/95 backdrop-blur supports-[backdrop-filter]:bg-slate-900/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
           <div className="flex items-center gap-3">
@@ -248,29 +275,24 @@ export default function KijinDashboard() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchData}
+              onClick={handleManualRefresh}
               disabled={isRefreshing}
               className="border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700 hover:text-slate-100"
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing ? "Refreshing" : "Refresh"}
+              {isRefreshing ? "..." : "Refresh"}
             </Button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
-        
-        {/* Error / Loading State Handling can go here if needed */}
-        
         {/* Section 1: Descriptive Analytics */}
         <section>
           <div className="mb-4 flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-emerald-400" />
             <h2 className="text-lg font-semibold text-slate-100">Descriptive Analytics</h2>
-            <Badge variant="outline" className="border-slate-600 text-slate-400">
-              The Past
-            </Badge>
+            <Badge variant="outline" className="border-slate-600 text-slate-400">The Past</Badge>
           </div>
 
           <Card className="border-slate-800 bg-slate-800/50">
@@ -283,29 +305,41 @@ export default function KijinDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Chart Placeholder - Now Dynamic-ish */}
-              <div className="relative h-[300px] w-full rounded-lg border border-slate-700 bg-slate-900/50 p-4 overflow-hidden">
-                 {/* Visualizing the "history" state as simple bars */}
-                <div className="absolute inset-0 flex items-end justify-between px-4 pb-0 pt-8 gap-1 opacity-80">
-                  {history.slice(-30).map((price, i) => {
-                     const min = Math.min(...history)
-                     const max = Math.max(...history)
-                     const range = max - min
-                     const heightPercent = ((price - min) / range) * 80 + 10 // scale to 10-90%
-                     const isUp = i > 0 && price >= history[i-1]
-                     
-                     return (
-                        <div 
-                          key={i} 
-                          className={`flex-1 rounded-t-sm transition-all duration-500 ${isUp ? 'bg-emerald-500/50' : 'bg-red-500/50'}`}
-                          style={{ height: `${heightPercent}%` }}
-                        />
-                     )
-                  })}
-                </div>
-                
-                {/* Overlay Text */}
-                <div className="absolute top-4 left-4 z-10">
+              {/* INTERACTIVE RECHARTS CHART */}
+              <div className="relative h-[300px] w-full rounded-lg border border-slate-700 bg-slate-900/50 p-2 overflow-hidden">
+                {loading ? (
+                   <div className="flex h-full items-center justify-center text-slate-500">Loading Data...</div>
+                ) : error ? (
+                   <div className="flex h-full items-center justify-center text-red-400">{error}</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
+                        itemStyle={{ color: '#10b981' }}
+                        labelStyle={{ color: '#94a3b8' }}
+                        formatter={(value: number) => [formatUSD(value), "Price"]}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="#10b981" 
+                        fillOpacity={1} 
+                        fill="url(#colorPrice)" 
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+
+                {/* Overlay Text for Price */}
+                <div className="absolute top-4 left-4 pointer-events-none">
                    <p className="text-3xl font-bold text-slate-100 tracking-tight">
                      {loading ? "..." : formatUSD(currentPrice)}
                    </p>
@@ -316,7 +350,7 @@ export default function KijinDashboard() {
                 </div>
               </div>
 
-              {/* Dynamic Stats Grid */}
+              {/* Stats Grid */}
               <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="border-slate-700 bg-slate-900/50">
                     <CardContent className="p-4">
@@ -346,10 +380,10 @@ export default function KijinDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <LineChart className="h-5 w-5 text-slate-500" />
-                         <span className="text-xs font-medium text-slate-400">7d Avg</span>
+                         <span className="text-xs font-medium text-slate-400">Avg</span>
                       </div>
                       <p className="mt-2 text-2xl font-bold text-slate-100">
-                         {loading ? "..." : formatUSD(history.slice(-7).reduce((a,b) => a+b, 0) / 7)}
+                         {loading ? "..." : formatUSD(history.reduce((a,b) => a+b, 0) / (history.length || 1))}
                       </p>
                       <p className="text-sm text-slate-400">Moving Average</p>
                     </CardContent>
@@ -377,27 +411,22 @@ export default function KijinDashboard() {
           <div className="mb-4 flex items-center gap-2">
             <Brain className="h-5 w-5 text-cyan-400" />
             <h2 className="text-lg font-semibold text-slate-100">Predictive Analytics</h2>
-            <Badge variant="outline" className="border-slate-600 text-slate-400">
-              The Future
-            </Badge>
+            <Badge variant="outline" className="border-slate-600 text-slate-400">The Future</Badge>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* AI Price Forecast */}
             <Card className="border-slate-800 bg-slate-800/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-slate-100">
                   <Zap className="h-5 w-5 text-cyan-400" />
-                  AI Price Forecast (24h)
+                  AI Price Forecast
                 </CardTitle>
-                <CardDescription className="text-slate-400">
-                  Linear Regression Model on 7d Volatility
-                </CardDescription>
+                <CardDescription className="text-slate-400">Linear Regression Model on Volatility</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
                   <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-6 text-center">
-                    <p className="text-sm text-slate-400">Predicted Price</p>
+                    <p className="text-sm text-slate-400">Predicted Price (Next interval)</p>
                     <p className="mt-2 text-4xl font-bold text-cyan-400">
                       {loading ? "Calculating..." : formatUSD(forecastPrice)}
                     </p>
@@ -408,33 +437,27 @@ export default function KijinDashboard() {
                       </span>
                     </div>
                   </div>
-
                   <div className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/50 p-4">
                     <div>
                       <p className="text-sm text-slate-400">Confidence Score</p>
                       <p className="text-2xl font-bold text-slate-100">{loading ? "-" : confidenceScore}%</p>
                     </div>
-                    {/* Simple Donut Visualization */}
                     <div className="h-12 w-12 rounded-full border-4 border-slate-700 border-t-cyan-400 rotate-45"></div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Trend Probability */}
             <Card className="border-slate-800 bg-slate-800/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-slate-100">
                   <Target className="h-5 w-5 text-cyan-400" />
                   Trend Probability
                 </CardTitle>
-                <CardDescription className="text-slate-400">
-                  Likelihood analysis based on SMA Cross
-                </CardDescription>
+                <CardDescription className="text-slate-400">Likelihood analysis based on SMA Cross</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {/* Uptrend */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -452,8 +475,6 @@ export default function KijinDashboard() {
                       />
                     </div>
                   </div>
-
-                  {/* Downtrend */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -482,20 +503,15 @@ export default function KijinDashboard() {
           <div className="mb-4 flex items-center gap-2">
             <Zap className="h-5 w-5 text-emerald-400" />
             <h2 className="text-lg font-semibold text-slate-100">Prescriptive Analytics</h2>
-            <Badge variant="outline" className="border-slate-600 text-slate-400">
-              The Action
-            </Badge>
+            <Badge variant="outline" className="border-slate-600 text-slate-400">The Action</Badge>
           </div>
 
           <Card className={`border-2 bg-gradient-to-br from-slate-800/80 to-emerald-950/30 ${recommendation.includes("BUY") ? "border-emerald-500/30" : recommendation.includes("SELL") ? "border-red-500/30" : "border-amber-500/30"}`}>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl text-slate-100">Strategic Insight</CardTitle>
-              <CardDescription className="text-slate-400">
-                Automated recommendation based on multi-factor analysis
-              </CardDescription>
+              <CardDescription className="text-slate-400">Automated recommendation based on multi-factor analysis</CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
-              {/* Main Recommendation Badge */}
               <div className="flex flex-col items-center justify-center gap-4 py-6">
                 <div className="relative">
                   <div className={`absolute -inset-4 rounded-full blur-xl opacity-20 ${recommendation.includes("BUY") ? "bg-emerald-500" : recommendation.includes("SELL") ? "bg-red-500" : "bg-amber-500"}`} />
@@ -509,7 +525,6 @@ export default function KijinDashboard() {
                 </div>
               </div>
 
-              {/* Logic Reasons Checklist */}
               <div className="mx-auto max-w-xl">
                 <h4 className="mb-4 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">
                   Logic Reasons
@@ -531,7 +546,6 @@ export default function KijinDashboard() {
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex flex-col items-center justify-center gap-4 pt-4 sm:flex-row">
                 <Button className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200 sm:w-auto">
                   <TrendingUp className="mr-2 h-4 w-4" />
@@ -549,7 +563,6 @@ export default function KijinDashboard() {
         </section>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-slate-800 py-6">
         <div className="mx-auto max-w-7xl px-4 text-center">
           <p className="text-sm text-slate-500">
